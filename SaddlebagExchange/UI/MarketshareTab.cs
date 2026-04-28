@@ -44,6 +44,7 @@ namespace SaddlebagExchange.UI
         private DateTime _copyNotificationUntil;
         private readonly List<int> _columnOrder = new();
         private readonly bool[] _columnVisible = new bool[(int)MsResultColumn._Count];
+        private CancellationTokenSource? _scanCts;
 
         private enum MsResultColumn
         {
@@ -806,6 +807,11 @@ namespace SaddlebagExchange.UI
 
         private void StartScan()
         {
+            _scanCts?.Cancel();
+            _scanCts?.Dispose();
+            _scanCts = new CancellationTokenSource();
+            var token = _scanCts.Token;
+
             _params.Server = _params.Server.Trim();
             if (string.IsNullOrEmpty(_params.Server))
             {
@@ -826,10 +832,14 @@ namespace SaddlebagExchange.UI
             {
                 try
                 {
-                    var list = await _api.MarketshareAsync(paramsCopy, CancellationToken.None).ConfigureAwait(false);
+                    var list = await _api.MarketshareAsync(paramsCopy, token).ConfigureAwait(false);
                     var results = (list ?? new List<MarketshareResultItem>()).ToImmutableArray();
                     _state = new ScanState<MarketshareResultItem>(false, results, string.Empty);
                     if (results.Length > 0) _requestOpenResultsWindow = true;
+                }
+                catch (OperationCanceledException)
+                {
+                    // A newer search replaced this one.
                 }
                 catch (Exception ex)
                 {
@@ -838,7 +848,12 @@ namespace SaddlebagExchange.UI
             });
         }
 
-        public void Dispose() => _api.Dispose();
+        public void Dispose()
+        {
+            _scanCts?.Cancel();
+            _scanCts?.Dispose();
+            _api.Dispose();
+        }
 
         private sealed record ScanState<T>(bool Loading, ImmutableArray<T> Results, string Error)
         {

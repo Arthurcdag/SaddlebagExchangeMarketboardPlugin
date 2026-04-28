@@ -22,6 +22,7 @@ Slash command to open window:
 
 ```
 /sbex
+/saddlebag
 /saddlebagexchange
 ```
 

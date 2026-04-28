@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Plugin.Services;
@@ -34,6 +35,7 @@ namespace SaddlebagExchange.UI
         private int _tableIdCounter;
         private readonly List<int> _columnOrder = [];
         private readonly bool[] _columnVisible = new bool[(int)ShoppingResultColumn._Count];
+        private CancellationTokenSource? _scanCts;
 
         private static readonly (int Value, string Label)[] JobOptions =
         {
@@ -515,6 +517,11 @@ namespace SaddlebagExchange.UI
 
         private void StartSearch()
         {
+            _scanCts?.Cancel();
+            _scanCts?.Dispose();
+            _scanCts = new CancellationTokenSource();
+            var token = _scanCts.Token;
+
             var homeServer = (_homeServerBuffer ?? string.Empty).Trim();
             if (string.IsNullOrEmpty(homeServer))
             {
@@ -545,10 +552,14 @@ namespace SaddlebagExchange.UI
             {
                 try
                 {
-                    var response = await _api.ShoppingListAsync(paramsCopy).ConfigureAwait(false);
+                    var response = await _api.ShoppingListAsync(paramsCopy, token).ConfigureAwait(false);
                     var results = (response.Data ?? []).ToImmutableArray();
                     _state = new ScanState(false, results, string.Empty, response.AverageCostPerCraft, response.TotalCost);
                     if (results.Length > 0) _requestOpenResultsWindow = true;
+                }
+                catch (OperationCanceledException)
+                {
+                    // A newer search replaced this one.
                 }
                 catch (Exception ex)
                 {
@@ -585,7 +596,12 @@ namespace SaddlebagExchange.UI
                 ImGui.SetTooltip(tooltip);
         }
 
-        public void Dispose() => _api.Dispose();
+        public void Dispose()
+        {
+            _scanCts?.Cancel();
+            _scanCts?.Dispose();
+            _api.Dispose();
+        }
 
         private readonly record struct SearchItemEntry(int ItemId, string Name);
 

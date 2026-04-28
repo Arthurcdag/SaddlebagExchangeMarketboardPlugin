@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
@@ -35,6 +36,7 @@ namespace SaddlebagExchange.UI
         private DateTime _copyNotificationUntil;
         private readonly List<int> _columnOrder = new();
         private readonly bool[] _columnVisible = new bool[(int)ResultColumn._Count];
+        private CancellationTokenSource? _scanCts;
 
         private static int[] GetDefaultColumnOrder() => new[]
         {
@@ -460,6 +462,11 @@ namespace SaddlebagExchange.UI
 
         private void StartScan()
         {
+            _scanCts?.Cancel();
+            _scanCts?.Dispose();
+            _scanCts = new CancellationTokenSource();
+            var token = _scanCts.Token;
+
             _params.HomeServer = _homeServerBuffer.Trim();
             if (string.IsNullOrEmpty(_params.HomeServer))
             {
@@ -486,10 +493,14 @@ namespace SaddlebagExchange.UI
             {
                 try
                 {
-                    var list = await _api.ScanAsync(paramsCopy).ConfigureAwait(false);
+                    var list = await _api.ScanAsync(paramsCopy, token).ConfigureAwait(false);
                     var results = (list ?? new List<ResellingResultItem>()).ToImmutableArray();
                     _state = new ScanState<ResellingResultItem>(false, results, string.Empty);
                     if (results.Length > 0) _requestOpenResultsWindow = true;
+                }
+                catch (OperationCanceledException)
+                {
+                    // A newer search replaced this one.
                 }
                 catch (Exception ex)
                 {
@@ -845,7 +856,12 @@ namespace SaddlebagExchange.UI
             return list;
         }
 
-        public void Dispose() => _api.Dispose();
+        public void Dispose()
+        {
+            _scanCts?.Cancel();
+            _scanCts?.Dispose();
+            _api.Dispose();
+        }
 
         private sealed record ScanState<T>(bool Loading, ImmutableArray<T> Results, string Error)
         {
