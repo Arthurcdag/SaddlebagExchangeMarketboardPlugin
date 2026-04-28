@@ -13,7 +13,7 @@ namespace SaddlebagExchange.UI
         private const string GuidesUrl = "https://github.com/ff14-advanced-market-search/saddlebag-with-pockets/wiki";
         private const string PatreonUrl = "https://www.patreon.com/indopan";
         private const string DiscordUrl = "https://discord.gg/9dHx2rEq9F";
-        private const string WebsiteUrl = "https://saddlebagexchange.com/wow";
+        private const string WebsiteUrl = "https://saddlebagexchange.com/ffxiv";
 
         private string _defaultDc = string.Empty;
 
