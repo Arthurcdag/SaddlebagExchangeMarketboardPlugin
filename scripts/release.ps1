@@ -50,9 +50,21 @@ $repoJson = Get-Content $repoJsonPath -Raw
 $repoJson = $repoJson -replace '("AssemblyVersion":\s*")[^"]+(")', "`${1}$Version`$2"
 if ($csproj -match 'Dalamud\.NET\.Sdk/(\d+)\.') {
     $apiLevel = $Matches[1]
-    $repoJson = $repoJson -replace '("DalamudApiLevel":\s*)\d+', "`${1}$apiLevel"
-    Write-Output "Set repo.json DalamudApiLevel to $apiLevel"
+} else {
+    Write-Error "Could not derive DalamudApiLevel from Dalamud.NET.Sdk in $csprojPath"
+    exit 1
 }
+$repoJson = $repoJson -replace '("DalamudApiLevel":\s*)\d+', "`${1}$apiLevel"
+if ($repoJson -match '"DalamudApiLevel":\s*(\d+)') {
+    if ($Matches[1] -ne $apiLevel) {
+        Write-Error "Failed to set repo.json DalamudApiLevel to $apiLevel"
+        exit 1
+    }
+} else {
+    Write-Error "Could not find DalamudApiLevel in $repoJsonPath"
+    exit 1
+}
+Write-Output "Set repo.json DalamudApiLevel to $apiLevel"
 $unixNow = [long]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
 $repoJson = $repoJson -replace '("LastUpdated":\s*)\d+', "`${1}$unixNow"
 Set-Content $repoJsonPath -Value $repoJson -NoNewline

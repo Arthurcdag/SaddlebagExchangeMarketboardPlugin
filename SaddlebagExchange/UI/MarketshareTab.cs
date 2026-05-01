@@ -34,6 +34,7 @@ namespace SaddlebagExchange.UI
         private MarketshareResultsWindow? _resultsWindow;
         private volatile bool _requestOpenResultsWindow;
         private MarketshareTreemapWindow? _treemapWindow;
+        private readonly object _scanLock = new();
         private int _scanGeneration;
         private int _treemapMetricIndex;
         private bool _showColumnsPopup;
@@ -812,46 +813,60 @@ namespace SaddlebagExchange.UI
 
         private void StartScan()
         {
-            var scanGeneration = Interlocked.Increment(ref _scanGeneration);
-            _params.Server = _params.Server.Trim();
-            if (string.IsNullOrEmpty(_params.Server))
+            int scanGeneration;
+            MarketshareParams paramsCopy;
+            lock (_scanLock)
             {
-                _state = _state with { Error = "Set World first." };
-                return;
+                scanGeneration = ++_scanGeneration;
+                _params.Server = _params.Server.Trim();
+                if (string.IsNullOrEmpty(_params.Server))
+                {
+                    _state = _state with { Error = "Set World first." };
+                    return;
+                }
+                paramsCopy = new MarketshareParams
+                {
+                    Server = _params.Server,
+                    TimePeriod = _params.TimePeriod,
+                    SalesAmount = _params.SalesAmount,
+                    AveragePrice = _params.AveragePrice,
+                    Filters = _params.Filters?.ToArray() ?? Array.Empty<int>(),
+                    SortBy = _params.SortBy
+                };
+                _state = _state with { Loading = true, Error = string.Empty };
             }
-            var paramsCopy = new MarketshareParams
-            {
-                Server = _params.Server,
-                TimePeriod = _params.TimePeriod,
-                SalesAmount = _params.SalesAmount,
-                AveragePrice = _params.AveragePrice,
-                Filters = _params.Filters?.ToArray() ?? Array.Empty<int>(),
-                SortBy = _params.SortBy
-            };
-            _state = _state with { Loading = true, Error = string.Empty };
             _ = Task.Run(async () =>
             {
                 try
                 {
                     var list = await _api.MarketshareAsync(paramsCopy).ConfigureAwait(false);
-                    if (scanGeneration != Volatile.Read(ref _scanGeneration))
-                        return;
                     var results = (list ?? new List<MarketshareResultItem>()).ToImmutableArray();
-                    _state = new ScanState<MarketshareResultItem>(false, results, string.Empty);
-                    if (results.Length > 0) _requestOpenResultsWindow = true;
+                    lock (_scanLock)
+                    {
+                        if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                            return;
+                        _state = new ScanState<MarketshareResultItem>(false, results, string.Empty);
+                        if (results.Length > 0) _requestOpenResultsWindow = true;
+                    }
                 }
                 catch (Exception ex)
                 {
-                    if (scanGeneration != Volatile.Read(ref _scanGeneration))
-                        return;
-                    _state = new ScanState<MarketshareResultItem>(false, ImmutableArray<MarketshareResultItem>.Empty, ex.Message);
+                    lock (_scanLock)
+                    {
+                        if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                            return;
+                        _state = new ScanState<MarketshareResultItem>(false, ImmutableArray<MarketshareResultItem>.Empty, ex.Message);
+                    }
                 }
             });
         }
 
         public void Dispose()
         {
-            Interlocked.Increment(ref _scanGeneration);
+            lock (_scanLock)
+            {
+                _scanGeneration++;
+            }
             _api.Dispose();
         }
 

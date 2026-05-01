@@ -48,24 +48,26 @@ echo "Set SaddlebagExchange.csproj $VERSION_TAG to $VERSION"
 
 # 2) Bump version, API level, and LastUpdated in repo.json
 API_LEVEL=$(grep -oE 'Dalamud\.NET\.Sdk/[0-9]+' "$CSPROJ" | head -n1 | sed 's|.*/||')
+if [[ -z "$API_LEVEL" ]]; then
+  echo "Error: could not derive DalamudApiLevel from Dalamud.NET.Sdk in $CSPROJ" >&2
+  exit 1
+fi
+if ! grep -q '"DalamudApiLevel"' "$REPO_JSON"; then
+  echo "Error: no DalamudApiLevel key in $REPO_JSON" >&2
+  exit 1
+fi
 if [[ "$(uname -s)" =~ ^(MINGW|MSYS|CYGWIN) ]]; then
   sed -i "s/\"AssemblyVersion\": \"[^\"]*\"/\"AssemblyVersion\": \"$VERSION\"/" "$REPO_JSON"
-  if [[ -n "$API_LEVEL" ]]; then
-    sed -i "s/\"DalamudApiLevel\": [0-9]*/\"DalamudApiLevel\": $API_LEVEL/" "$REPO_JSON"
-  fi
+  sed -i "s/\"DalamudApiLevel\": [0-9]*/\"DalamudApiLevel\": $API_LEVEL/" "$REPO_JSON"
   UNIX_NOW=$(date +%s 2>/dev/null || echo "0")
   sed -i "s/\"LastUpdated\": [0-9]*/\"LastUpdated\": $UNIX_NOW/" "$REPO_JSON"
 else
   sed -i.bak "s/\"AssemblyVersion\": \"[^\"]*\"/\"AssemblyVersion\": \"$VERSION\"/" "$REPO_JSON" && rm -f "${REPO_JSON}.bak"
-  if [[ -n "$API_LEVEL" ]]; then
-    sed -i.bak "s/\"DalamudApiLevel\": [0-9]*/\"DalamudApiLevel\": $API_LEVEL/" "$REPO_JSON" && rm -f "${REPO_JSON}.bak"
-  fi
+  sed -i.bak "s/\"DalamudApiLevel\": [0-9]*/\"DalamudApiLevel\": $API_LEVEL/" "$REPO_JSON" && rm -f "${REPO_JSON}.bak"
   UNIX_NOW=$(date +%s 2>/dev/null || echo "0")
   sed -i.bak "s/\"LastUpdated\": [0-9]*/\"LastUpdated\": $UNIX_NOW/" "$REPO_JSON" && rm -f "${REPO_JSON}.bak"
 fi
-if [[ -n "$API_LEVEL" ]]; then
-  echo "Set repo.json DalamudApiLevel to $API_LEVEL"
-fi
+echo "Set repo.json DalamudApiLevel to $API_LEVEL"
 echo "Set repo.json AssemblyVersion to $VERSION and LastUpdated to $UNIX_NOW"
 
 # 3) Restore manifest.toml so it cannot be accidentally included
