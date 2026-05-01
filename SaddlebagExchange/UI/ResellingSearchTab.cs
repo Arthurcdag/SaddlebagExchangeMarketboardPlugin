@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
@@ -29,6 +30,7 @@ namespace SaddlebagExchange.UI
         private bool _showFiltersPopup;
         private string _selectedDataCenter = string.Empty;
         private const int SearchBufferSize = 128;
+        private int _scanGeneration;
         private readonly byte[] _searchBuffer = new byte[SearchBufferSize];
         private int _tableIdCounter;
         private string? _copyNotificationText;
@@ -463,6 +465,7 @@ namespace SaddlebagExchange.UI
 
         private void StartScan()
         {
+            var scanGeneration = Interlocked.Increment(ref _scanGeneration);
             _params.HomeServer = _homeServerBuffer.Trim();
             if (string.IsNullOrEmpty(_params.HomeServer))
             {
@@ -490,12 +493,16 @@ namespace SaddlebagExchange.UI
                 try
                 {
                     var list = await _api.ScanAsync(paramsCopy).ConfigureAwait(false);
+                    if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                        return;
                     var results = (list ?? new List<ResellingResultItem>()).ToImmutableArray();
                     _state = new ScanState<ResellingResultItem>(false, results, string.Empty);
                     if (results.Length > 0) _requestOpenResultsWindow = true;
                 }
                 catch (Exception ex)
                 {
+                    if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                        return;
                     _state = new ScanState<ResellingResultItem>(false, ImmutableArray<ResellingResultItem>.Empty, ex.Message);
                 }
             });
@@ -849,7 +856,11 @@ namespace SaddlebagExchange.UI
             return list;
         }
 
-        public void Dispose() => _api.Dispose();
+        public void Dispose()
+        {
+            Interlocked.Increment(ref _scanGeneration);
+            _api.Dispose();
+        }
 
         private sealed record ScanState<T>(bool Loading, ImmutableArray<T> Results, string Error)
         {

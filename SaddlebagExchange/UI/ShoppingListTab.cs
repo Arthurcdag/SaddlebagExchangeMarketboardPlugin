@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
@@ -29,6 +30,7 @@ namespace SaddlebagExchange.UI
         private bool _regionWide;
         private ShoppingListResultsWindow? _resultsWindow;
         private volatile bool _requestOpenResultsWindow;
+        private int _searchGeneration;
         private readonly byte[] _searchBuffer = new byte[SearchBufferSize];
         private int _sortColumnIndex = -1;
         private bool _sortAscending = true;
@@ -518,6 +520,7 @@ namespace SaddlebagExchange.UI
 
         private void StartSearch()
         {
+            var searchGeneration = Interlocked.Increment(ref _searchGeneration);
             var homeServer = (_homeServerBuffer ?? string.Empty).Trim();
             if (string.IsNullOrEmpty(homeServer))
             {
@@ -549,12 +552,16 @@ namespace SaddlebagExchange.UI
                 try
                 {
                     var response = await _api.ShoppingListAsync(paramsCopy).ConfigureAwait(false);
+                    if (searchGeneration != Volatile.Read(ref _searchGeneration))
+                        return;
                     var results = (response.Data ?? []).ToImmutableArray();
                     _state = new ScanState(false, results, string.Empty, response.AverageCostPerCraft, response.TotalCost);
                     if (results.Length > 0) _requestOpenResultsWindow = true;
                 }
                 catch (Exception ex)
                 {
+                    if (searchGeneration != Volatile.Read(ref _searchGeneration))
+                        return;
                     _state = new ScanState(false, ImmutableArray<ShoppingListResultItem>.Empty, ex.Message, 0, 0);
                 }
             });
@@ -588,7 +595,11 @@ namespace SaddlebagExchange.UI
                 ImGui.SetTooltip(tooltip);
         }
 
-        public void Dispose() => _api.Dispose();
+        public void Dispose()
+        {
+            Interlocked.Increment(ref _searchGeneration);
+            _api.Dispose();
+        }
 
         private readonly record struct SearchItemEntry(int ItemId, string Name);
 

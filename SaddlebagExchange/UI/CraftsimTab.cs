@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
@@ -26,6 +27,7 @@ namespace SaddlebagExchange.UI
         private bool _showJobsPopup;
         private CraftsimResultsWindow? _resultsWindow;
         private volatile bool _requestOpenResultsWindow;
+        private int _scanGeneration;
         private int _sortColumnIndex = -1;
         private bool _sortAscending = true;
         private bool _showColumnsPopup;
@@ -537,6 +539,7 @@ namespace SaddlebagExchange.UI
 
         private void StartScan()
         {
+            var scanGeneration = Interlocked.Increment(ref _scanGeneration);
             _params.HomeServer = _homeServerBuffer.Trim();
             if (string.IsNullOrEmpty(_params.HomeServer))
             {
@@ -567,12 +570,16 @@ namespace SaddlebagExchange.UI
                 try
                 {
                     var list = await _api.CraftsimAsync(paramsCopy).ConfigureAwait(false);
+                    if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                        return;
                     var results = (list ?? new List<CraftsimResultItem>()).ToImmutableArray();
                     _state = new ScanState<CraftsimResultItem>(false, results, string.Empty);
                     if (results.Length > 0) _requestOpenResultsWindow = true;
                 }
                 catch (Exception ex)
                 {
+                    if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                        return;
                     _state = new ScanState<CraftsimResultItem>(false, ImmutableArray<CraftsimResultItem>.Empty, ex.Message);
                 }
             });
@@ -954,7 +961,11 @@ namespace SaddlebagExchange.UI
             Util.OpenLink(url);
         }
 
-        public void Dispose() => _api.Dispose();
+        public void Dispose()
+        {
+            Interlocked.Increment(ref _scanGeneration);
+            _api.Dispose();
+        }
 
         private sealed record ScanState<T>(bool Loading, ImmutableArray<T> Results, string Error)
         {

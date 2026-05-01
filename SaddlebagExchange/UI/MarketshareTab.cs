@@ -34,6 +34,7 @@ namespace SaddlebagExchange.UI
         private MarketshareResultsWindow? _resultsWindow;
         private volatile bool _requestOpenResultsWindow;
         private MarketshareTreemapWindow? _treemapWindow;
+        private int _scanGeneration;
         private int _treemapMetricIndex;
         private bool _showColumnsPopup;
         private readonly byte[] _searchBuffer = new byte[SearchBufferSize];
@@ -811,6 +812,7 @@ namespace SaddlebagExchange.UI
 
         private void StartScan()
         {
+            var scanGeneration = Interlocked.Increment(ref _scanGeneration);
             _params.Server = _params.Server.Trim();
             if (string.IsNullOrEmpty(_params.Server))
             {
@@ -831,19 +833,27 @@ namespace SaddlebagExchange.UI
             {
                 try
                 {
-                    var list = await _api.MarketshareAsync(paramsCopy, CancellationToken.None).ConfigureAwait(false);
+                    var list = await _api.MarketshareAsync(paramsCopy).ConfigureAwait(false);
+                    if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                        return;
                     var results = (list ?? new List<MarketshareResultItem>()).ToImmutableArray();
                     _state = new ScanState<MarketshareResultItem>(false, results, string.Empty);
                     if (results.Length > 0) _requestOpenResultsWindow = true;
                 }
                 catch (Exception ex)
                 {
+                    if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                        return;
                     _state = new ScanState<MarketshareResultItem>(false, ImmutableArray<MarketshareResultItem>.Empty, ex.Message);
                 }
             });
         }
 
-        public void Dispose() => _api.Dispose();
+        public void Dispose()
+        {
+            Interlocked.Increment(ref _scanGeneration);
+            _api.Dispose();
+        }
 
         private sealed record ScanState<T>(bool Loading, ImmutableArray<T> Results, string Error)
         {

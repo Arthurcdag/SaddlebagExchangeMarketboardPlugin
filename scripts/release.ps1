@@ -32,13 +32,27 @@ foreach ($p in $csprojPath, $repoJsonPath, $manifestPath) {
 
 # 1) Bump version in csproj
 $csproj = Get-Content $csprojPath -Raw
-$csproj = $csproj -replace '(<AssemblyVersion>)[^<]+(</AssemblyVersion>)', "`${1}$Version`$2"
+if ($csproj -match '<Version>[^<]+</Version>') {
+    $csproj = $csproj -replace '(<Version>)[^<]+(</Version>)', "`${1}$Version`$2"
+    $versionProperty = "Version"
+} elseif ($csproj -match '<AssemblyVersion>[^<]+</AssemblyVersion>') {
+    $csproj = $csproj -replace '(<AssemblyVersion>)[^<]+(</AssemblyVersion>)', "`${1}$Version`$2"
+    $versionProperty = "AssemblyVersion"
+} else {
+    Write-Error "Could not find <Version> or <AssemblyVersion> in $csprojPath"
+    exit 1
+}
 Set-Content $csprojPath -Value $csproj -NoNewline
-Write-Output "Set SaddlebagExchange.csproj AssemblyVersion to $Version"
+Write-Output "Set SaddlebagExchange.csproj $versionProperty to $Version"
 
-# 2) Bump version and LastUpdated in repo.json
+# 2) Bump version, API level, and LastUpdated in repo.json
 $repoJson = Get-Content $repoJsonPath -Raw
 $repoJson = $repoJson -replace '("AssemblyVersion":\s*")[^"]+(")', "`${1}$Version`$2"
+if ($csproj -match 'Dalamud\.NET\.Sdk/(\d+)\.') {
+    $apiLevel = $Matches[1]
+    $repoJson = $repoJson -replace '("DalamudApiLevel":\s*)\d+', "`${1}$apiLevel"
+    Write-Output "Set repo.json DalamudApiLevel to $apiLevel"
+}
 $unixNow = [long]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
 $repoJson = $repoJson -replace '("LastUpdated":\s*)\d+', "`${1}$unixNow"
 Set-Content $repoJsonPath -Value $repoJson -NoNewline
