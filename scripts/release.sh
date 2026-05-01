@@ -67,6 +67,10 @@ else
   UNIX_NOW=$(date +%s 2>/dev/null || echo "0")
   sed -i.bak "s/\"LastUpdated\": [0-9]*/\"LastUpdated\": $UNIX_NOW/" "$REPO_JSON" && rm -f "${REPO_JSON}.bak"
 fi
+if ! grep -Eq "\"DalamudApiLevel\"[[:space:]]*:[[:space:]]*$API_LEVEL([[:space:]]*[,}])" "$REPO_JSON"; then
+  echo "Error: failed to set DalamudApiLevel to $API_LEVEL in $REPO_JSON" >&2
+  exit 1
+fi
 echo "Set repo.json DalamudApiLevel to $API_LEVEL"
 echo "Set repo.json AssemblyVersion to $VERSION and LastUpdated to $UNIX_NOW"
 

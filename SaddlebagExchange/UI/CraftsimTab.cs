@@ -544,13 +544,14 @@ namespace SaddlebagExchange.UI
             CraftsimParams paramsCopy;
             lock (_scanLock)
             {
-                scanGeneration = ++_scanGeneration;
                 _params.HomeServer = _homeServerBuffer.Trim();
                 if (string.IsNullOrEmpty(_params.HomeServer))
                 {
-                    _state = _state with { Error = "Set Home server first." };
+                    _state = _state with { Loading = false, Error = "Set Home server first." };
                     return;
                 }
+
+                scanGeneration = ++_scanGeneration;
 
                 paramsCopy = new CraftsimParams
                 {

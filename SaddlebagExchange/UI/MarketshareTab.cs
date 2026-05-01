@@ -817,13 +817,15 @@ namespace SaddlebagExchange.UI
             MarketshareParams paramsCopy;
             lock (_scanLock)
             {
-                scanGeneration = ++_scanGeneration;
                 _params.Server = _params.Server.Trim();
                 if (string.IsNullOrEmpty(_params.Server))
                 {
-                    _state = _state with { Error = "Set World first." };
+                    _state = _state with { Loading = false, Error = "Set World first." };
                     return;
                 }
+
+                scanGeneration = ++_scanGeneration;
+
                 paramsCopy = new MarketshareParams
                 {
                     Server = _params.Server,

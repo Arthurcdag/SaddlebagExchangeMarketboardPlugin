@@ -525,18 +525,19 @@ namespace SaddlebagExchange.UI
             ShoppingListParams paramsCopy;
             lock (_searchLock)
             {
-                searchGeneration = ++_searchGeneration;
                 var homeServer = (_homeServerBuffer ?? string.Empty).Trim();
                 if (string.IsNullOrEmpty(homeServer))
                 {
-                    _state = _state with { Error = "Set Home server first." };
+                    _state = _state with { Loading = false, Error = "Set Home server first." };
                     return;
                 }
                 if (_shoppingList.Count == 0)
                 {
-                    _state = _state with { Error = "Add at least one item." };
+                    _state = _state with { Loading = false, Error = "Add at least one item." };
                     return;
                 }
+
+                searchGeneration = ++_searchGeneration;
 
                 paramsCopy = new ShoppingListParams
                 {
