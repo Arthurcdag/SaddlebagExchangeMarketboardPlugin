@@ -115,6 +115,20 @@ try {
     Pop-Location
 }
 
+$validatePs1 = Join-Path $repoRoot "scripts\validate-manifest.ps1"
+if (Get-Command bash -ErrorAction SilentlyContinue) {
+    Push-Location $repoRoot
+    try {
+        & bash "scripts/validate-manifest.sh"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    } finally {
+        Pop-Location
+    }
+} else {
+    & $validatePs1
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 Write-Output ""
 Write-Output "Release $Version done!"
 Write-Output "  Release commit (what D17 builds): $commit"

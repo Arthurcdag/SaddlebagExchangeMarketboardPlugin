@@ -43,10 +43,12 @@ Or PowerShell: `.\scripts\release.ps1 1.0.11`
 
 The script will:
 
-1. Bump **version** in `SaddlebagExchange/SaddlebagExchange.csproj` (`AssemblyVersion`) and `repo.json` (`AssemblyVersion` + `LastUpdated` timestamp).
-2. **Git:** `git add -A`, `git status`, `git commit -m "Release X.Y.Z"`, `git push origin main`.
-3. **Tag:** `git tag vX.Y.Z`, `git push origin vX.Y.Z`.
-4. Set **`SaddlebagExchange/manifest.toml`** `commit` to the release commit hash, then commit and push that change.
+1. Bump **version** in `SaddlebagExchange/SaddlebagExchange.csproj` (`<Version>`) and `repo.json` (`AssemblyVersion` + `LastUpdated` timestamp).
+2. **Git:** commit **only** the version files (`git restore` on `manifest.toml` first so the release commit never carries a stale pin), then `git push origin main`.
+3. **Tag:** `git tag vX.Y.Z`, `git push origin vX.Y.Z` (the tag points at this **release** commit).
+4. Set **`SaddlebagExchange/manifest.toml`** `commit` to that **same** release SHA, commit with message `Set manifest commit for X.Y.Z`, push, then run **`scripts/validate-manifest.sh`** (or `.ps1`) so the pin, `repo.json`, and csproj cannot drift.
+
+**Why two commits?** Git cannot embed a commit’s own hash inside files in that same commit. The **release** commit contains the real plugin tree (version bump). The **next** commit only updates `manifest.toml` so `commit = "<release SHA>"`. DalamudPluginsD17 builds whatever SHA is in `commit`; it must be the commit that contains the matching `<Version>` in the `.csproj`, not a “manifest-only” tip where the pin would have to equal HEAD (impossible).
 
 After the script finishes, **GitHub Actions** runs the Release workflow. Check **Actions** on the repo; when the workflow is green, the **Releases** page will have the new release and **SaddlebagExchange.zip**.
 
@@ -55,10 +57,10 @@ After the script finishes, **GitHub Actions** runs the Release workflow. Check *
 For reference, the manual steps the one-button script performs:
 
 1. **Commit and push** all changes (workflow, repo.json, project, code).
-2. **Set version** in `SaddlebagExchange/SaddlebagExchange.csproj` → `AssemblyVersion` (e.g. `1.0.0`). Optionally update `repo.json` → `AssemblyVersion` and `LastUpdated` (Unix timestamp) so the plugin list shows the right version. API level is derived from the SDK in the project; when you upgrade the Dalamud SDK (e.g. to 15.x), update `repo.json` → `DalamudApiLevel` to match the SDK major version.
+2. **Set version** in `SaddlebagExchange/SaddlebagExchange.csproj` → `<Version>X.Y.Z</Version>`. Optionally update `repo.json` → `AssemblyVersion` and `LastUpdated` (Unix timestamp) so the custom repo list shows the right version. API level is derived from the SDK in the project; when you upgrade the Dalamud SDK (e.g. to 15.x), update `repo.json` → `DalamudApiLevel` to match the SDK major version.
 
    **When bumping version, update:**
-   - `SaddlebagExchange/SaddlebagExchange.csproj` → `<AssemblyVersion>X.Y.Z</AssemblyVersion>` (source of truth; manifest is generated from this).
+   - `SaddlebagExchange/SaddlebagExchange.csproj` → `<Version>X.Y.Z</Version>` (source of truth for the built assembly).
    - `repo.json` → `"AssemblyVersion": "X.Y.Z"` (and optionally `"LastUpdated": <Unix timestamp>` so the plugin list shows the new version).
 3. **Create and push the tag** (use the same version number):
    ```bash
@@ -78,7 +80,7 @@ git tag v1.0.7
 git push origin v1.0.7
 ```
 
-5. Set **manifest.toml** `commit` to the release commit hash: run `scripts/update-manifest-commit.ps1` or `scripts/update-manifest-commit.sh` (after the release commit is pushed, so HEAD is the release), then commit and push the manifest change.
+5. Set **manifest.toml** `commit` to the **release** commit hash (the commit that contains the version bump), not an arbitrary tip: use `scripts/release.sh` / `release.ps1`, or after that commit is `HEAD`, run `scripts/update-manifest-commit.ps1` / `.sh`, then commit and push the manifest change.
 
 ## D17 submission (manifest.toml)
 
@@ -86,23 +88,24 @@ To submit the plugin to the **official Dalamud plugin repo** ([DalamudPluginsD17
 
 - **Location:** `SaddlebagExchange/manifest.toml`
 - **Purpose:** Tells the D17 repo where the plugin lives, who maintains it, and which commit to build. One PR = one plugin; new plugins go to the **testing/live** track (not stable).
-- **Before opening your PR:**
-  1. Set **`commit`** to the **exact full commit hash** of the version you are submitting. You can run the helper script from repo root:
+- **What Dalamud builds:** CI checks out **`repository` at `commit`** and builds that tree. The **installer/changelog text** in the D17 PR preview comes from **`changelog` in the same `manifest.toml`** you add under `testing/live/…`. So `commit` must be a SHA whose `.csproj` `<Version>` matches what you intend (see validation below), and `changelog` must be a real description — not a placeholder like “Initial release.”
 
-     ```bash
-     bash scripts/update-manifest-commit.sh
-     ```
+### Scripts (manifest / D17)
 
-     Or PowerShell: `.\scripts\update-manifest-commit.ps1`  
-     This writes the current `git rev-parse HEAD` into `SaddlebagExchange/manifest.toml`. Leave `commit` empty only while developing; the D17 build will fail without a valid commit.
-  2. Update **`changelog`** if you’re submitting a new version.
-  3. Keep **`owners`** as the list of GitHub usernames that maintain the plugin (e.g. `["cohenaj194"]`).
-- **What to include in the PR:** The folder you add must follow the required layout. Add the **`SaddlebagExchange/`** folder with:
-  - `manifest.toml` (with **`commit`** set to the full SHA — D17 build fails if empty).
-  - **`images/icon.png`** — required; the icon lives at `SaddlebagExchange/images/icon.png` in this repo (same file used for the plugin in `/xlplugins`). Icon must be square 64×64–512×512 px (recommended 512×512). Optional: `images/image1.png`…`image5.png` for screenshots.
-  The D17 layout is `testing/live/SaddlebagExchange/manifest.toml` and `testing/live/SaddlebagExchange/images/icon.png`.
+| Script | Use |
+|--------|-----|
+| `scripts/release.sh` / `release.ps1` | Version bump, push, tag, then set `manifest.toml` `commit` to the **release** SHA and validate. Prefer this for releases. |
+| `scripts/update-manifest-commit.sh` / `.ps1` | Writes `commit` in `manifest.toml`. With **no arguments**, if the latest commit message starts with `Set manifest commit`, it pins **`HEAD~1`** (the release tree) instead of HEAD so you never point D17 at the impossible “manifest-only” tip. Pass an explicit ref when you need to (e.g. `bash scripts/update-manifest-commit.sh abc123f`). |
+| `scripts/validate-manifest.sh` / `.ps1` | Checks that the pin exists on this branch, the pinned tree’s `<Version>` matches the working tree `SaddlebagExchange.csproj` and `repo.json`, rejects placeholder changelogs, and catches “manifest pins HEAD” when HEAD is only a pointer commit. Run before pushing a D17 PR; **CI runs the shell version on every push/PR to `main`**. |
 
-The **repo.json** at the repo root is only for **custom plugin repos** (e.g. the install URL in “Install (for players)”). The D17 build system does **not** use repo.json; it uses **manifest.toml** and builds from the GitHub repo and commit you specify there.
+### Before opening or updating a D17 PR
+
+1. On **main**, run `bash scripts/validate-manifest.sh` (or `.\scripts\validate-manifest.ps1`) and fix any errors.
+2. Update **`changelog`** for each submission reviewers will read (multiline TOML string is fine).
+3. Keep **`owners`** as the list of GitHub usernames that maintain the plugin.
+4. Copy this repo’s **`SaddlebagExchange/`** folder into the D17 PR (layout: `testing/live/SaddlebagExchange/manifest.toml`, `testing/live/SaddlebagExchange/images/icon.png`, etc.).
+
+The **repo.json** at the repo root is only for **custom plugin repos** (e.g. the install URL in “Install (for players)”). The D17 build system does **not** use `repo.json`; it uses **`manifest.toml`**. Keeping `AssemblyVersion` in `repo.json` aligned with `<Version>` in the `.csproj` is still required so the custom repo and the validator stay in sync.
 
 ## Prerequisites
 

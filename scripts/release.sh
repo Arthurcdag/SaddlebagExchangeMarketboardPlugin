@@ -114,6 +114,8 @@ git add "$MANIFEST"
 git commit -m "Set manifest commit for $VERSION"
 git push origin main
 
+bash "$REPO_ROOT/scripts/validate-manifest.sh"
+
 echo ""
 echo "Release $VERSION done!"
 echo "  Release commit (what D17 builds): $COMMIT"
