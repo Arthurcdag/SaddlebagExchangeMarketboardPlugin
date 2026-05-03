@@ -41,6 +41,8 @@ bash scripts/release.sh 1.0.11
 
 Or PowerShell: `.\scripts\release.ps1 1.0.11`
 
+**Manifest pin only** (no version bump — e.g. fix D17 `commit` after a bad edit): `bash scripts/release.sh pin` or `.\scripts\release.ps1 pin`, optionally with a git ref as the next argument (`pin HEAD~1`, `pin abc123f`).
+
 The script will:
 
 1. Bump **version** in `SaddlebagExchange/SaddlebagExchange.csproj` (`<Version>`) and `repo.json` (`AssemblyVersion` + `LastUpdated` timestamp).
@@ -80,7 +82,7 @@ git tag v1.0.7
 git push origin v1.0.7
 ```
 
-5. Set **manifest.toml** `commit` to the **release** commit hash (the commit that contains the version bump), not an arbitrary tip: use `scripts/release.sh` / `release.ps1`, or after that commit is `HEAD`, run `scripts/update-manifest-commit.ps1` / `.sh`, then commit and push the manifest change.
+5. Set **manifest.toml** `commit` to the **release** commit hash (the commit that contains the version bump), not an arbitrary tip: run `bash scripts/release.sh pin` / `.\scripts\release.ps1 pin` (with an optional ref), then commit and push the manifest change — or use the full `release.sh X.Y.Z` flow above.
 
 ## D17 submission (manifest.toml)
 
@@ -94,8 +96,7 @@ To submit the plugin to the **official Dalamud plugin repo** ([DalamudPluginsD17
 
 | Script | Use |
 |--------|-----|
-| `scripts/release.sh` / `release.ps1` | Version bump, push, tag, then set `manifest.toml` `commit` to the **release** SHA and validate. Prefer this for releases. |
-| `scripts/update-manifest-commit.sh` / `.ps1` | Writes `commit` in `manifest.toml`. With **no arguments**, if the latest commit message starts with `Set manifest commit`, it pins **`HEAD~1`** (the release tree) instead of HEAD so you never point D17 at the impossible “manifest-only” tip. Pass an explicit ref when you need to (e.g. `bash scripts/update-manifest-commit.sh abc123f`). |
+| `scripts/release.sh` / `release.ps1` | **`X.Y.Z`** — version bump, push, tag, set `manifest.toml` `commit` to the **release** SHA, push manifest commit, validate. **`pin`** / **`pin <ref>`** — only updates `manifest.toml` `commit` (smart default: if the latest commit is `Set manifest commit…`, pins **`HEAD~1`** so D17 never targets the manifest-only tip), then validates. You still commit/push the manifest yourself after `pin`. |
 | `scripts/validate-manifest.sh` / `.ps1` | Checks that the pin exists on this branch, the pinned tree’s `<Version>` matches the working tree `SaddlebagExchange.csproj` and `repo.json`, rejects placeholder changelogs, and catches “manifest pins HEAD” when HEAD is only a pointer commit. Run before pushing a D17 PR; **CI runs the shell version on every push/PR to `main`**. |
 
 ### Before opening or updating a D17 PR

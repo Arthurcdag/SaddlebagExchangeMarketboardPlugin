@@ -75,7 +75,7 @@ HEAD_VER=$(version_from_csproj_text "$HEAD_CS")
 [[ -n "$HEAD_VER" ]] || die "Could not read <Version> from working-tree csproj."
 
 if [[ "$HEAD_VER" != "$PIN_VER" ]]; then
-  die "Version mismatch: working tree csproj is $HEAD_VER but manifest.toml pins $PIN_FULL which builds $PIN_VER. D17 will show $PIN_VER to users. Bump the pin (run scripts/release.sh or scripts/update-manifest-commit.* after the commit that contains $HEAD_VER), or revert the stray csproj bump."
+  die "Version mismatch: working tree csproj is $HEAD_VER but manifest.toml pins $PIN_FULL which builds $PIN_VER. D17 will show $PIN_VER to users. Bump the pin (bash scripts/release.sh pin after the commit that contains $HEAD_VER), or revert the stray csproj bump."
 fi
 
 RJ_VER=$(grep -oE '"AssemblyVersion"[[:space:]]*:[[:space:]]*"[^"]+"' "$REPO_JSON" | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
@@ -94,7 +94,7 @@ fi
 SUBJ=$(git log -1 --pretty=%s HEAD)
 if echo "$SUBJ" | grep -qE '^Set manifest commit'; then
   if [[ "$PIN_FULL" == "$(git rev-parse HEAD)" ]]; then
-    die "HEAD is a manifest-only pointer commit, but manifest.toml pins HEAD. That is impossible for a self-consistent tree (git cannot embed its own hash). The pin must be the *release* commit (parent). Run: bash scripts/update-manifest-commit.sh"
+    die "HEAD is a manifest-only pointer commit, but manifest.toml pins HEAD. That is impossible for a self-consistent tree (git cannot embed its own hash). The pin must be the *release* commit (parent). Run: bash scripts/release.sh pin"
   fi
   if [[ "$PIN_FULL" != "$(git rev-parse HEAD~1)" ]]; then
     warn "HEAD is \"Set manifest commit …\" but pin is not HEAD~1. Expected pin $(git rev-parse HEAD~1) if you used scripts/release.sh."

@@ -1,11 +1,71 @@
 #!/usr/bin/env bash
-# One-button release: bump version in csproj + repo.json, commit & push release, tag, then set manifest.toml commit and push.
+# Full release: bump version, tag, set manifest.toml commit, validate.
+# Manifest-only pin (no version bump): bash scripts/release.sh pin [ref]
 # Run from repo root. Usage: bash scripts/release.sh 1.0.11
 
 set -e
-VERSION="${1:?Usage: $0 X.Y.Z (e.g. 1.0.11)}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+MANIFEST="$REPO_ROOT/SaddlebagExchange/manifest.toml"
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+pin_manifest_only() {
+  local explicit="${1:-}"
+  cd "$REPO_ROOT"
+  if [[ ! -f "$MANIFEST" ]]; then
+    echo "Error: not found: $MANIFEST" >&2
+    exit 1
+  fi
+  if ! grep -qE '^commit\s*=' "$MANIFEST"; then
+    echo "Error: no commit = line in $MANIFEST" >&2
+    exit 1
+  fi
+
+  local COMMIT
+  if [[ -n "$explicit" ]]; then
+    COMMIT="$(git rev-parse "$explicit")"
+    echo "Using explicit ref: $explicit -> $COMMIT"
+  else
+    local SUBJECT
+    SUBJECT="$(git log -1 --pretty=%s HEAD)"
+    if echo "$SUBJECT" | grep -qE '^Set manifest commit'; then
+      COMMIT="$(git rev-parse HEAD~1)"
+      echo "Latest commit is a manifest-pointer commit. Pinning D17 build to release tree: $COMMIT"
+    else
+      COMMIT="$(git rev-parse HEAD)"
+      echo "Pinning D17 build to HEAD: $COMMIT"
+    fi
+  fi
+
+  if [[ "$(uname -s)" =~ ^(MINGW|MSYS|CYGWIN) ]]; then
+    sed -i "s/^commit = .*/commit = \"$COMMIT\"/" "$MANIFEST"
+  else
+    sed -i.bak "s/^commit = .*/commit = \"$COMMIT\"/" "$MANIFEST" && rm -f "${MANIFEST}.bak"
+  fi
+  if ! grep -qF "$COMMIT" "$MANIFEST"; then
+    echo "Error: manifest was not updated with commit $COMMIT" >&2
+    exit 1
+  fi
+  echo "Set SaddlebagExchange/manifest.toml commit to $COMMIT"
+
+  bash "$REPO_ROOT/scripts/validate-manifest.sh"
+
+  echo ""
+  echo "Pin-only done. Commit the manifest when ready:"
+  echo "  git add SaddlebagExchange/manifest.toml && git commit -m \"Set manifest commit …\" && git push origin main"
+}
+
+if [[ "${1:-}" == "pin" || "${1:-}" == "--pin-manifest" ]]; then
+  shift
+  if [[ ! -d "$REPO_ROOT/.git" ]]; then
+    echo "Error: not a git repo root: $REPO_ROOT" >&2
+    exit 1
+  fi
+  pin_manifest_only "${1:-}"
+  exit 0
+fi
+
+VERSION="${1:?Usage: $0 X.Y.Z (e.g. 1.0.11) | $0 pin [git-ref]}"
+
 cd "$REPO_ROOT"
 
 if [[ ! -d .git ]]; then
@@ -21,7 +81,6 @@ fi
 
 CSPROJ="$REPO_ROOT/SaddlebagExchange/SaddlebagExchange.csproj"
 REPO_JSON="$REPO_ROOT/repo.json"
-MANIFEST="$REPO_ROOT/SaddlebagExchange/manifest.toml"
 
 for f in "$CSPROJ" "$REPO_JSON" "$MANIFEST"; do
   if [[ ! -f "$f" ]]; then

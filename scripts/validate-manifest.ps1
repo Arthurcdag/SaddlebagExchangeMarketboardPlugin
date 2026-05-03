@@ -63,7 +63,7 @@ $headVer = Get-VersionFromCsprojText $headCs
 if (-not $headVer) { Write-ValidateError "Could not read Version from working-tree csproj." }
 
 if ($headVer -ne $pinVer) {
-    Write-ValidateError "Version mismatch: working tree csproj is $headVer but manifest pins $pinFull which builds $pinVer. See README (D17 manifest)."
+    Write-ValidateError "Version mismatch: working tree csproj is $headVer but manifest pins $pinFull which builds $pinVer. Run .\scripts\release.ps1 pin after the commit that contains $headVer, or see README."
 }
 
 $repoJson = Get-Content $repoJsonPath -Raw
@@ -85,7 +85,7 @@ $subj = git log -1 --pretty=%s HEAD
 if ($subj -match '^Set manifest commit') {
     $headSha = git rev-parse HEAD
     if ($pinFull -eq $headSha) {
-        Write-ValidateError "HEAD is manifest-only but manifest pins HEAD (invalid). Run: .\scripts\update-manifest-commit.ps1"
+        Write-ValidateError "HEAD is manifest-only but manifest pins HEAD (invalid). Run: .\scripts\release.ps1 pin"
     }
     $parentSha = git rev-parse HEAD~1
     if ($pinFull -ne $parentSha) {
