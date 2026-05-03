@@ -15,7 +15,7 @@
     "DownloadLinkTesting": "https://github.com/ff14-advanced-market-search/SaddlebagExchangeMarketboardPlugin/releases/latest/download/SaddlebagExchange.zip",
     "DownloadLinkUpdate": "https://github.com/ff14-advanced-market-search/SaddlebagExchangeMarketboardPlugin/releases/latest/download/SaddlebagExchange.zip",
     "DownloadCount": 0,
-    "LastUpdated": 1777644662,
-    "Changelog": "Initial release."
+    "LastUpdated": 1777834329,
+    "Changelog": "First public Dalamud listing for Saddlebag Exchange — the in-game companion to saddlebagexchange.com for marketboard analytics and gil-focused trading.\n\nTools include reselling search, marketshare analysis (with treemap), crafting profitability (craftsim), and shopping list workflows backed by live market data.\n\nOpen the window with /sbex, /saddlebag, or /saddlebagexchange, or from the Dalamud plugin menu."
   }
 ]
