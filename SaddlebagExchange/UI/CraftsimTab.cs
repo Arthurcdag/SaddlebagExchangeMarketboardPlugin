@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
@@ -26,6 +27,8 @@ namespace SaddlebagExchange.UI
         private bool _showJobsPopup;
         private CraftsimResultsWindow? _resultsWindow;
         private volatile bool _requestOpenResultsWindow;
+        private readonly object _scanLock = new();
+        private int _scanGeneration;
         private int _sortColumnIndex = -1;
         private bool _sortAscending = true;
         private bool _showColumnsPopup;
@@ -537,43 +540,60 @@ namespace SaddlebagExchange.UI
 
         private void StartScan()
         {
-            _params.HomeServer = _homeServerBuffer.Trim();
-            if (string.IsNullOrEmpty(_params.HomeServer))
+            int scanGeneration;
+            CraftsimParams paramsCopy;
+            lock (_scanLock)
             {
-                _state = _state with { Error = "Set Home server first." };
-                return;
+                _params.HomeServer = _homeServerBuffer.Trim();
+                if (string.IsNullOrEmpty(_params.HomeServer))
+                {
+                    _state = _state with { Loading = false, Error = "Set Home server first." };
+                    return;
+                }
+
+                scanGeneration = ++_scanGeneration;
+
+                paramsCopy = new CraftsimParams
+                {
+                    HomeServer = _params.HomeServer,
+                    CostMetric = _params.CostMetric,
+                    RevenueMetric = _params.RevenueMetric,
+                    SalesPerWeek = _params.SalesPerWeek,
+                    MedianSalePrice = _params.MedianSalePrice,
+                    MaxMaterialCost = _params.MaxMaterialCost,
+                    Jobs = _params.Jobs?.ToArray() ?? new[] { 0 },
+                    Filters = _params.Filters?.ToArray() ?? new[] { 0, -5 },
+                    Stars = _params.Stars,
+                    LvlLowerLimit = _params.LvlLowerLimit,
+                    LvlUpperLimit = _params.LvlUpperLimit,
+                    Yields = _params.Yields,
+                    HideExpertRecipes = _params.HideExpertRecipes
+                };
+
+                _state = _state with { Loading = true, Error = string.Empty };
             }
-
-            var paramsCopy = new CraftsimParams
-            {
-                HomeServer = _params.HomeServer,
-                CostMetric = _params.CostMetric,
-                RevenueMetric = _params.RevenueMetric,
-                SalesPerWeek = _params.SalesPerWeek,
-                MedianSalePrice = _params.MedianSalePrice,
-                MaxMaterialCost = _params.MaxMaterialCost,
-                Jobs = _params.Jobs?.ToArray() ?? new[] { 0 },
-                Filters = _params.Filters?.ToArray() ?? new[] { 0, -5 },
-                Stars = _params.Stars,
-                LvlLowerLimit = _params.LvlLowerLimit,
-                LvlUpperLimit = _params.LvlUpperLimit,
-                Yields = _params.Yields,
-                HideExpertRecipes = _params.HideExpertRecipes
-            };
-
-            _state = _state with { Loading = true, Error = string.Empty };
             _ = Task.Run(async () =>
             {
                 try
                 {
                     var list = await _api.CraftsimAsync(paramsCopy).ConfigureAwait(false);
                     var results = (list ?? new List<CraftsimResultItem>()).ToImmutableArray();
-                    _state = new ScanState<CraftsimResultItem>(false, results, string.Empty);
-                    if (results.Length > 0) _requestOpenResultsWindow = true;
+                    lock (_scanLock)
+                    {
+                        if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                            return;
+                        _state = new ScanState<CraftsimResultItem>(false, results, string.Empty);
+                        if (results.Length > 0) _requestOpenResultsWindow = true;
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _state = new ScanState<CraftsimResultItem>(false, ImmutableArray<CraftsimResultItem>.Empty, ex.Message);
+                    lock (_scanLock)
+                    {
+                        if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                            return;
+                        _state = new ScanState<CraftsimResultItem>(false, ImmutableArray<CraftsimResultItem>.Empty, ex.Message);
+                    }
                 }
             });
         }
@@ -954,7 +974,14 @@ namespace SaddlebagExchange.UI
             Util.OpenLink(url);
         }
 
-        public void Dispose() => _api.Dispose();
+        public void Dispose()
+        {
+            lock (_scanLock)
+            {
+                _scanGeneration++;
+            }
+            _api.Dispose();
+        }
 
         private sealed record ScanState<T>(bool Loading, ImmutableArray<T> Results, string Error)
         {

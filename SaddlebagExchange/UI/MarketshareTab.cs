@@ -34,6 +34,8 @@ namespace SaddlebagExchange.UI
         private MarketshareResultsWindow? _resultsWindow;
         private volatile bool _requestOpenResultsWindow;
         private MarketshareTreemapWindow? _treemapWindow;
+        private readonly object _scanLock = new();
+        private int _scanGeneration;
         private int _treemapMetricIndex;
         private bool _showColumnsPopup;
         private readonly byte[] _searchBuffer = new byte[SearchBufferSize];
@@ -811,39 +813,64 @@ namespace SaddlebagExchange.UI
 
         private void StartScan()
         {
-            _params.Server = _params.Server.Trim();
-            if (string.IsNullOrEmpty(_params.Server))
+            int scanGeneration;
+            MarketshareParams paramsCopy;
+            lock (_scanLock)
             {
-                _state = _state with { Error = "Set World first." };
-                return;
+                _params.Server = _params.Server.Trim();
+                if (string.IsNullOrEmpty(_params.Server))
+                {
+                    _state = _state with { Loading = false, Error = "Set World first." };
+                    return;
+                }
+
+                scanGeneration = ++_scanGeneration;
+
+                paramsCopy = new MarketshareParams
+                {
+                    Server = _params.Server,
+                    TimePeriod = _params.TimePeriod,
+                    SalesAmount = _params.SalesAmount,
+                    AveragePrice = _params.AveragePrice,
+                    Filters = _params.Filters?.ToArray() ?? Array.Empty<int>(),
+                    SortBy = _params.SortBy
+                };
+                _state = _state with { Loading = true, Error = string.Empty };
             }
-            var paramsCopy = new MarketshareParams
-            {
-                Server = _params.Server,
-                TimePeriod = _params.TimePeriod,
-                SalesAmount = _params.SalesAmount,
-                AveragePrice = _params.AveragePrice,
-                Filters = _params.Filters?.ToArray() ?? Array.Empty<int>(),
-                SortBy = _params.SortBy
-            };
-            _state = _state with { Loading = true, Error = string.Empty };
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    var list = await _api.MarketshareAsync(paramsCopy, CancellationToken.None).ConfigureAwait(false);
+                    var list = await _api.MarketshareAsync(paramsCopy).ConfigureAwait(false);
                     var results = (list ?? new List<MarketshareResultItem>()).ToImmutableArray();
-                    _state = new ScanState<MarketshareResultItem>(false, results, string.Empty);
-                    if (results.Length > 0) _requestOpenResultsWindow = true;
+                    lock (_scanLock)
+                    {
+                        if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                            return;
+                        _state = new ScanState<MarketshareResultItem>(false, results, string.Empty);
+                        if (results.Length > 0) _requestOpenResultsWindow = true;
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _state = new ScanState<MarketshareResultItem>(false, ImmutableArray<MarketshareResultItem>.Empty, ex.Message);
+                    lock (_scanLock)
+                    {
+                        if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                            return;
+                        _state = new ScanState<MarketshareResultItem>(false, ImmutableArray<MarketshareResultItem>.Empty, ex.Message);
+                    }
                 }
             });
         }
 
-        public void Dispose() => _api.Dispose();
+        public void Dispose()
+        {
+            lock (_scanLock)
+            {
+                _scanGeneration++;
+            }
+            _api.Dispose();
+        }
 
         private sealed record ScanState<T>(bool Loading, ImmutableArray<T> Results, string Error)
         {

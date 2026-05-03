@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
@@ -29,6 +30,8 @@ namespace SaddlebagExchange.UI
         private bool _showFiltersPopup;
         private string _selectedDataCenter = string.Empty;
         private const int SearchBufferSize = 128;
+        private readonly object _scanLock = new();
+        private int _scanGeneration;
         private readonly byte[] _searchBuffer = new byte[SearchBufferSize];
         private int _tableIdCounter;
         private string? _copyNotificationText;
@@ -463,40 +466,58 @@ namespace SaddlebagExchange.UI
 
         private void StartScan()
         {
-            _params.HomeServer = _homeServerBuffer.Trim();
-            if (string.IsNullOrEmpty(_params.HomeServer))
+            int scanGeneration;
+            ResellingParams paramsCopy;
+            lock (_scanLock)
             {
-                _state = _state with { Error = "Set Home server first." };
-                return;
+                _params.HomeServer = _homeServerBuffer.Trim();
+                if (string.IsNullOrEmpty(_params.HomeServer))
+                {
+                    _state = _state with { Loading = false, Error = "Set Home server first." };
+                    return;
+                }
+
+                scanGeneration = ++_scanGeneration;
+
+                paramsCopy = new ResellingParams
+                {
+                    PreferredRoi = _params.PreferredRoi,
+                    MinProfitAmount = _params.MinProfitAmount,
+                    MinDesiredAvgPpu = _params.MinDesiredAvgPpu,
+                    MinStackSize = _params.MinStackSize,
+                    HoursAgo = _params.HoursAgo,
+                    MinSales = _params.MinSales,
+                    Hq = _params.Hq,
+                    HomeServer = _params.HomeServer,
+                    Filters = _params.Filters?.ToArray() ?? Array.Empty<int>(),
+                    RegionWide = _params.RegionWide,
+                    IncludeVendor = _params.IncludeVendor,
+                    ShowOutStock = _params.ShowOutStock
+                };
+                _state = _state with { Loading = true, Error = string.Empty };
             }
-            var paramsCopy = new ResellingParams
-            {
-                PreferredRoi = _params.PreferredRoi,
-                MinProfitAmount = _params.MinProfitAmount,
-                MinDesiredAvgPpu = _params.MinDesiredAvgPpu,
-                MinStackSize = _params.MinStackSize,
-                HoursAgo = _params.HoursAgo,
-                MinSales = _params.MinSales,
-                Hq = _params.Hq,
-                HomeServer = _params.HomeServer,
-                Filters = _params.Filters?.ToArray() ?? Array.Empty<int>(),
-                RegionWide = _params.RegionWide,
-                IncludeVendor = _params.IncludeVendor,
-                ShowOutStock = _params.ShowOutStock
-            };
-            _state = _state with { Loading = true, Error = string.Empty };
             _ = Task.Run(async () =>
             {
                 try
                 {
                     var list = await _api.ScanAsync(paramsCopy).ConfigureAwait(false);
                     var results = (list ?? new List<ResellingResultItem>()).ToImmutableArray();
-                    _state = new ScanState<ResellingResultItem>(false, results, string.Empty);
-                    if (results.Length > 0) _requestOpenResultsWindow = true;
+                    lock (_scanLock)
+                    {
+                        if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                            return;
+                        _state = new ScanState<ResellingResultItem>(false, results, string.Empty);
+                        if (results.Length > 0) _requestOpenResultsWindow = true;
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _state = new ScanState<ResellingResultItem>(false, ImmutableArray<ResellingResultItem>.Empty, ex.Message);
+                    lock (_scanLock)
+                    {
+                        if (scanGeneration != Volatile.Read(ref _scanGeneration))
+                            return;
+                        _state = new ScanState<ResellingResultItem>(false, ImmutableArray<ResellingResultItem>.Empty, ex.Message);
+                    }
                 }
             });
         }
@@ -849,7 +870,14 @@ namespace SaddlebagExchange.UI
             return list;
         }
 
-        public void Dispose() => _api.Dispose();
+        public void Dispose()
+        {
+            lock (_scanLock)
+            {
+                _scanGeneration++;
+            }
+            _api.Dispose();
+        }
 
         private sealed record ScanState<T>(bool Loading, ImmutableArray<T> Results, string Error)
         {

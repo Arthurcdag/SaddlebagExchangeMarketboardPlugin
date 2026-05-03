@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
@@ -29,6 +30,8 @@ namespace SaddlebagExchange.UI
         private bool _regionWide;
         private ShoppingListResultsWindow? _resultsWindow;
         private volatile bool _requestOpenResultsWindow;
+        private readonly object _searchLock = new();
+        private int _searchGeneration;
         private readonly byte[] _searchBuffer = new byte[SearchBufferSize];
         private int _sortColumnIndex = -1;
         private bool _sortAscending = true;
@@ -518,44 +521,61 @@ namespace SaddlebagExchange.UI
 
         private void StartSearch()
         {
-            var homeServer = (_homeServerBuffer ?? string.Empty).Trim();
-            if (string.IsNullOrEmpty(homeServer))
+            int searchGeneration;
+            ShoppingListParams paramsCopy;
+            lock (_searchLock)
             {
-                _state = _state with { Error = "Set Home server first." };
-                return;
-            }
-            if (_shoppingList.Count == 0)
-            {
-                _state = _state with { Error = "Add at least one item." };
-                return;
-            }
-
-            var paramsCopy = new ShoppingListParams
-            {
-                HomeServer = homeServer,
-                RegionWide = _regionWide,
-                ShoppingList = _shoppingList.Select(x => new ShoppingInputItem
+                var homeServer = (_homeServerBuffer ?? string.Empty).Trim();
+                if (string.IsNullOrEmpty(homeServer))
                 {
-                    ItemId = x.ItemId,
-                    CraftAmount = Math.Max(1, x.CraftAmount),
-                    Hq = x.Hq,
-                    Job = x.Job
-                }).ToArray()
-            };
+                    _state = _state with { Loading = false, Error = "Set Home server first." };
+                    return;
+                }
+                if (_shoppingList.Count == 0)
+                {
+                    _state = _state with { Loading = false, Error = "Add at least one item." };
+                    return;
+                }
 
-            _state = _state with { Loading = true, Error = string.Empty };
+                searchGeneration = ++_searchGeneration;
+
+                paramsCopy = new ShoppingListParams
+                {
+                    HomeServer = homeServer,
+                    RegionWide = _regionWide,
+                    ShoppingList = _shoppingList.Select(x => new ShoppingInputItem
+                    {
+                        ItemId = x.ItemId,
+                        CraftAmount = Math.Max(1, x.CraftAmount),
+                        Hq = x.Hq,
+                        Job = x.Job
+                    }).ToArray()
+                };
+
+                _state = _state with { Loading = true, Error = string.Empty };
+            }
             _ = Task.Run(async () =>
             {
                 try
                 {
                     var response = await _api.ShoppingListAsync(paramsCopy).ConfigureAwait(false);
                     var results = (response.Data ?? []).ToImmutableArray();
-                    _state = new ScanState(false, results, string.Empty, response.AverageCostPerCraft, response.TotalCost);
-                    if (results.Length > 0) _requestOpenResultsWindow = true;
+                    lock (_searchLock)
+                    {
+                        if (searchGeneration != Volatile.Read(ref _searchGeneration))
+                            return;
+                        _state = new ScanState(false, results, string.Empty, response.AverageCostPerCraft, response.TotalCost);
+                        if (results.Length > 0) _requestOpenResultsWindow = true;
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _state = new ScanState(false, ImmutableArray<ShoppingListResultItem>.Empty, ex.Message, 0, 0);
+                    lock (_searchLock)
+                    {
+                        if (searchGeneration != Volatile.Read(ref _searchGeneration))
+                            return;
+                        _state = new ScanState(false, ImmutableArray<ShoppingListResultItem>.Empty, ex.Message, 0, 0);
+                    }
                 }
             });
         }
@@ -588,7 +608,14 @@ namespace SaddlebagExchange.UI
                 ImGui.SetTooltip(tooltip);
         }
 
-        public void Dispose() => _api.Dispose();
+        public void Dispose()
+        {
+            lock (_searchLock)
+            {
+                _searchGeneration++;
+            }
+            _api.Dispose();
+        }
 
         private readonly record struct SearchItemEntry(int ItemId, string Name);
 
