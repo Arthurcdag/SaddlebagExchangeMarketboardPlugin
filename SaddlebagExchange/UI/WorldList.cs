@@ -106,9 +106,12 @@ namespace SaddlebagExchange.UI
             };
         }
 
-        public static (string DataCenter, string World)[] All => AllLazy.Value;
+        private static (string DataCenter, string World)[] CachedAll => AllLazy.Value;
 
-        /// <summary>Data centers and worlds supported by Saddlebag. Keep in sync with saddlebag-with-pockets Worlds.ts.</summary>
+        /// <summary>Copy of data centers and worlds supported by Saddlebag. Keep in sync with saddlebag-with-pockets Worlds.ts.</summary>
+        public static (string DataCenter, string World)[] All => ((string DataCenter, string World)[])CachedAll.Clone();
+
+        /// <summary>Copy of data centers and worlds supported by Saddlebag. Keep in sync with saddlebag-with-pockets Worlds.ts.</summary>
         public static (string DataCenter, string World)[] GetAll() => All;
 
         /// <summary>Unique data center names in display order.</summary>
@@ -116,7 +119,7 @@ namespace SaddlebagExchange.UI
         {
             var seen = new HashSet<string>();
             var list = new List<string>();
-            foreach (var (dc, _) in All)
+            foreach (var (dc, _) in CachedAll)
             {
                 if (seen.Add(dc))
                     list.Add(dc);
@@ -128,7 +131,7 @@ namespace SaddlebagExchange.UI
         public static string[] GetWorlds(string dataCenter)
         {
             var list = new List<string>();
-            foreach (var (dc, world) in All)
+            foreach (var (dc, world) in CachedAll)
             {
                 if (dc == dataCenter)
                     list.Add(world);
@@ -140,7 +143,7 @@ namespace SaddlebagExchange.UI
         public static string? GetDataCenterForWorld(string world)
         {
             if (string.IsNullOrEmpty(world)) return null;
-            foreach (var (dc, w) in All)
+            foreach (var (dc, w) in CachedAll)
             {
                 if (string.Equals(w, world, StringComparison.OrdinalIgnoreCase))
                     return dc;

@@ -17,7 +17,7 @@ namespace SaddlebagExchange.UI
             if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
                 return;
 
-            Util.OpenLink(uri.ToString());
+            Util.OpenLink(uri.AbsoluteUri);
         }
     }
 }
