@@ -11,10 +11,10 @@ namespace SaddlebagExchange.UI
     /// </summary>
     public static class WorldList
     {
-        private static readonly Lazy<(string DataCenter, string World)[]> AllLazy = new(GetAll);
+        private static readonly Lazy<(string DataCenter, string World)[]> AllLazy = new(BuildAll);
 
         /// <summary>Data centers and worlds supported by Saddlebag. Keep in sync with saddlebag-with-pockets Worlds.ts.</summary>
-        public static (string DataCenter, string World)[] GetAll()
+        private static (string DataCenter, string World)[] BuildAll()
         {
             return new[]
             {
@@ -107,6 +107,9 @@ namespace SaddlebagExchange.UI
         }
 
         public static (string DataCenter, string World)[] All => AllLazy.Value;
+
+        /// <summary>Data centers and worlds supported by Saddlebag. Keep in sync with saddlebag-with-pockets Worlds.ts.</summary>
+        public static (string DataCenter, string World)[] GetAll() => All;
 
         /// <summary>Unique data center names in display order.</summary>
         public static string[] GetDataCenters()
